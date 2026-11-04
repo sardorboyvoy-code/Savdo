@@ -1,0 +1,67 @@
+/* ============================================================
+   SERVICE WORKER — Telefon Savdo
+   ============================================================ */
+
+const CACHE_NOMI = "telefon-savdo-v1";
+const STATIK_FAYLLAR = ["index.html", "style.css", "app.js", "manifest.json"];
+
+// install
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches
+      .open(CACHE_NOMI)
+      .then((cache) => cache.addAll(STATIK_FAYLLAR))
+      .then(() => self.skipWaiting())
+  );
+});
+
+// activate — eski keshlarni tozalash
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys.map((k) => {
+            if (k !== CACHE_NOMI) return caches.delete(k);
+          })
+        )
+      )
+      .then(() => self.clients.claim())
+  );
+});
+
+// fetch
+self.addEventListener("fetch", (event) => {
+  const url = event.request.url;
+
+  // Supabase API so'rovlari — network-first
+  if (url.includes("supabase.co") || url.includes("/rest/v1/")) {
+    event.respondWith(
+      fetch(event.request)
+        .then((res) => {
+          const clone = res.clone();
+          caches.open(CACHE_NOMI).then((cache) => cache.put(event.request, clone));
+          return res;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Statik fayllar — cache-first
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      if (cached) return cached;
+      return fetch(event.request)
+        .then((res) => {
+          if (res && res.status === 200 && event.request.method === "GET") {
+            const clone = res.clone();
+            caches.open(CACHE_NOMI).then((cache) => cache.put(event.request, clone));
+          }
+          return res;
+        })
+        .catch(() => caches.match("index.html"));
+    })
+  );
+});
